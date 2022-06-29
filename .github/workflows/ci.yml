@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [synchronize, opened, reopened]
+  push:
+    branches: [master]
+  schedule:
+    # additionally run once per week (At 00:00 on Sunday) to maintain cache
+    - cron: '0 0 * * 0'
+
+jobs:
+  stack:
+    name: ${{ matrix.os }} / ghc ${{ matrix.ghc }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macOS-latest]
+        stack: ["2.7.3"]
+        ghc: ["8.10.7"]
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: haskell/actions/setup@v1.2
+        name: Setup Haskell Stack
+        with:
+          ghc-version: ${{ matrix.ghc }}
+          stack-version: ${{ matrix.stack }}
+
+      - uses: actions/cache@v2
+        name: Cache ~/.stack
+        with:
+          path: ~/.stack
+          key: ${{ runner.os }}-${{ matrix.ghc }}-stack
+
+      - name: Install SDL2 + Glew for UI
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+               sudo apt-get install libsdl2-dev libglew-dev
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+               brew install sdl2
+               brew install glew
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+               stack setup
+               stack exec -- pacman -S mingw-w64-x86_64-pkg-config
+               stack exec -- pacman -S mingw-w64-x86_64-SDL2
+               stack exec -- pacman -S mingw-w64-x86_64-freeglut
+               stack exec -- pacman -S mingw-w64-x86_64-glew
+          fi
+        shell: bash
+
+      - name: Fetch secp256k1 sources
+        uses: sudosubin/git-clone-action@v1
+        with:
+          repository: 'bitcoin-core/secp256k1'
+          platform: 'github'
+
+#      - name: Install Linux distribution for the Windows Subsystem for Linux
+#        uses: Vampire/setup-wsl@v1
+
+      - name: Install secp256k1
+        run: |
+          if [ "$RUNNER_OS" == "Linux" ]; then
+               sudo apt-get install make autoconf
+               cd bitcoin-core/secp256k1
+               ./autogen.sh
+               ./configure --enable-module-schnorrsig --enable-module-extrakeys --enable-module-ecdh --enable-experimental
+               make
+               sudo make install
+          elif [ "$RUNNER_OS" == "macOS" ]; then
+               brew install make autoconf
+               sudo apt-get install make git autoconf
+               cd bitcoin-core/secp256k1
+               ./autogen.sh
+               ./configure --enable-module-schnorrsig --enable-module-extrakeys --enable-module-ecdh --enable-experimental
+               make
+               sudo make install
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+               sudo apt update
+               sudo apt upgrade
+               sudo apt install build-essential libtool autotools-dev automake pkg-config bsdmainutils curl git make autoconf
+               cd bitcoin-core/secp256k1
+               ./autogen.sh
+               ./configure --enable-module-schnorrsig --enable-module-extrakeys --enable-module-ecdh --enable-experimental
+               make
+               sudo make install
+          fi
+
+      - name: Install dependencies
+        run: |
+          stack build --system-ghc --test --bench --no-run-tests --no-run-benchmarks --only-dependencies
+
+      - name: Build
+        run: |
+          stack build --system-ghc --test --bench --no-run-tests --no-run-benchmarks
+
+      - name: Test
+        run: |
+          stack test --system-ghc
