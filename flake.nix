@@ -7,7 +7,7 @@
       flake = false;
     };
     flake-utils.url = "github:numtide/flake-utils";
-    haskell-nix.url = "github:input-output-hk/haskell.nix";
+    haskell-nix.url = "github:prolic/haskell.nix/patch-2";
     nixpkgs.follows = "haskell-nix/nixpkgs-unstable";
   };
 
